@@ -88,7 +88,6 @@ public class MainActivity extends AppCompatActivity
     private String mUsername;
     private String mPhotoUrl;
     private SharedPreferences mSharedPreferences;
-    private GoogleApiClient mGoogleApiClient;
 
     private Button mSendButton;
     private RecyclerView mMessageRecyclerView;
@@ -102,6 +101,8 @@ public class MainActivity extends AppCompatActivity
     private DatabaseReference mFirebaseDatabaseReference;
     private FirebaseRecyclerAdapter<FriendlyMessage,MessageViewHolder> mFirebaseAdapter;
     private FirebaseRemoteConfig mFirebaseRemoteConfig;
+    private GoogleApiClient mGoogleApiClient;
+    private FirebaseAnalytics mFirebaseAnalytics;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -110,11 +111,6 @@ public class MainActivity extends AppCompatActivity
         mSharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
         // Set default username is anonymous.
         mUsername = ANONYMOUS;
-
-        mGoogleApiClient = new GoogleApiClient.Builder(this)
-                .enableAutoManage(this /* FragmentActivity */, this /* OnConnectionFailedListener */)
-                .addApi(Auth.GOOGLE_SIGN_IN_API)
-                .build();
 
         mFirebaseRemoteConfig = FirebaseRemoteConfig.getInstance();
         FirebaseRemoteConfigSettings mFirebaseRemoteConfigSettings = new FirebaseRemoteConfigSettings.Builder()
@@ -125,6 +121,12 @@ public class MainActivity extends AppCompatActivity
         mFirebaseRemoteConfig.setConfigSettings(mFirebaseRemoteConfigSettings);
         mFirebaseRemoteConfig.setDefaults(defaultConfigMap);
         fetchConfig();
+
+        mGoogleApiClient = new GoogleApiClient.Builder(this)
+                .enableAutoManage(this,this)
+                .addApi(Auth.GOOGLE_SIGN_IN_API)
+                .addApi(AppInvite.API)
+                .build();
 
         // Init FirebaseAuth
         mFirebaseAuth = FirebaseAuth.getInstance();
@@ -139,6 +141,7 @@ public class MainActivity extends AppCompatActivity
                 mPhotoUrl = mFirebaseUser.getPhotoUrl().toString();
             }
         }
+        mFirebaseAnalytics = FirebaseAnalytics.getInstance(this);
 
         // Initialize ProgressBar and RecyclerView.
         mProgressBar = (ProgressBar) findViewById(R.id.progressBar);
@@ -182,6 +185,8 @@ public class MainActivity extends AppCompatActivity
             }
         });
 
+
+
         mMessageRecyclerView.setLayoutManager(mLinearLayoutManager);
         mMessageRecyclerView.setAdapter(mFirebaseAdapter);
 
@@ -220,8 +225,64 @@ public class MainActivity extends AppCompatActivity
         });
     }
 
-    private void fetchConfig() {
+    private void sendInvitation() {
+        Intent intent = new AppInviteInvitation.IntentBuilder(getString(R.string.invitation_title))
+                .setMessage(getString(R.string.invitation_message))
+                .setCallToActionText(getString(R.string.invitation_cta))
+                .build();
+        startActivityForResult(intent, REQUEST_INVITE);
+    }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        Log.d(TAG, "onActivityResult: requestCode=" + requestCode +
+                ", resultCode=" + resultCode);
+        if (requestCode == REQUEST_INVITE) {
+            if (resultCode == RESULT_OK) {
+                // Check how many invitations were sent.
+                Bundle payload = new Bundle();
+                payload.putString(FirebaseAnalytics.Param.VALUE, "sent");
+                mFirebaseAnalytics.logEvent(FirebaseAnalytics.Event.SHARE,
+                        payload);
+                String[] ids = AppInviteInvitation
+                        .getInvitationIds(resultCode, data);
+                Log.d(TAG, "Invitations sent: " + ids.length);
+            } else {
+                // Sending failed or it was canceled, show failure message to
+                // the user
+                Log.d(TAG, "Failed to send invitation.");
+            }
+        }
+    }
+
+    private void fetchConfig() {
+        long cachExpiration = 3600;
+        if (mFirebaseRemoteConfig.getInfo().getConfigSettings().isDeveloperModeEnabled()){
+            cachExpiration = 0;
+        }
+
+        mFirebaseRemoteConfig.fetch(cachExpiration).addOnSuccessListener(new OnSuccessListener<Void>() {
+            @Override
+            public void onSuccess(Void aVoid) {
+                mFirebaseRemoteConfig.activateFetched();
+                applyRetrivedLengthLimit();
+            }
+        }).addOnFailureListener(new OnFailureListener() {
+            @Override
+            public void onFailure(@NonNull Exception e) {
+                Log.w(TAG, "Error fetching config: "+e.getMessage());
+                applyRetrivedLengthLimit();
+            }
+        });
+    }
+
+    private void applyRetrivedLengthLimit() {
+        Long friendly_msg_length =
+                mFirebaseRemoteConfig.getLong("friendly_msg_length");
+        mMessageEditText.setFilters(new InputFilter[]{new
+                InputFilter.LengthFilter(friendly_msg_length.intValue())});
+        Log.d(TAG, "FML is: " + friendly_msg_length);
     }
 
     @Override
@@ -256,6 +317,12 @@ public class MainActivity extends AppCompatActivity
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()){
+            case R.id.invite_menu:
+                sendInvitation();
+                return true;
+            case R.id.fresh_config_menu:
+                fetchConfig();
+                return true;
             case R.id.sign_out_menu:
                 mFirebaseAuth.signOut();
                 Auth.GoogleSignInApi.signOut(mGoogleApiClient);
