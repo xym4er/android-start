@@ -94,6 +94,7 @@ public class MainActivity extends AppCompatActivity
     private LinearLayoutManager mLinearLayoutManager;
     private ProgressBar mProgressBar;
     private EditText mMessageEditText;
+    private AdView mAdView;
 
     // Firebase instance variables
     private FirebaseAuth mFirebaseAuth;
@@ -103,6 +104,7 @@ public class MainActivity extends AppCompatActivity
     private FirebaseRemoteConfig mFirebaseRemoteConfig;
     private GoogleApiClient mGoogleApiClient;
     private FirebaseAnalytics mFirebaseAnalytics;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -121,6 +123,10 @@ public class MainActivity extends AppCompatActivity
         mFirebaseRemoteConfig.setConfigSettings(mFirebaseRemoteConfigSettings);
         mFirebaseRemoteConfig.setDefaults(defaultConfigMap);
         fetchConfig();
+
+        mAdView = (AdView) findViewById(R.id.adView);
+        AdRequest adRequest = new AdRequest.Builder().build();
+        mAdView.loadAd(adRequest);
 
         mGoogleApiClient = new GoogleApiClient.Builder(this)
                 .enableAutoManage(this,this)
@@ -249,6 +255,10 @@ public class MainActivity extends AppCompatActivity
                         .getInvitationIds(resultCode, data);
                 Log.d(TAG, "Invitations sent: " + ids.length);
             } else {
+                Bundle payload = new Bundle();
+                payload.putString(FirebaseAnalytics.Param.VALUE, "not sent");
+                mFirebaseAnalytics.logEvent(FirebaseAnalytics.Event.SHARE,
+                        payload);
                 // Sending failed or it was canceled, show failure message to
                 // the user
                 Log.d(TAG, "Failed to send invitation.");
@@ -294,16 +304,25 @@ public class MainActivity extends AppCompatActivity
 
     @Override
     public void onPause() {
+        if (mAdView != null) {
+            mAdView.pause();
+        }
         super.onPause();
     }
 
     @Override
     public void onResume() {
         super.onResume();
+        if (mAdView != null) {
+            mAdView.resume();
+        }
     }
 
     @Override
     public void onDestroy() {
+        if (mAdView != null) {
+            mAdView.destroy();
+        }
         super.onDestroy();
     }
 
@@ -317,6 +336,10 @@ public class MainActivity extends AppCompatActivity
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()){
+            case R.id.crash_menu:
+                FirebaseCrash.logcat(Log.ERROR, TAG, "crash caused");
+                causeCrash();
+                return true;
             case R.id.invite_menu:
                 sendInvitation();
                 return true;
@@ -332,6 +355,10 @@ public class MainActivity extends AppCompatActivity
             default:
                 return super.onOptionsItemSelected(item);
         }
+    }
+
+    private void causeCrash() {
+        throw new NullPointerException("Fake null pointer exception");
     }
 
     @Override
